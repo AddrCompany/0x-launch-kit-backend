@@ -1,7 +1,6 @@
 'use strict';
 Object.defineProperty(exports, '__esModule', { value: true });
 const _0x_js_1 = require('0x.js');
-const order_watcher_1 = require('@0x/order-watcher');
 const types_1 = require('@0x/types');
 const utils_1 = require('@0x/utils');
 const _ = require('lodash');
@@ -9,8 +8,19 @@ const config_1 = require('./config');
 const constants_1 = require('./constants');
 const db_connection_1 = require('./db_connection');
 const SignedOrderModel_1 = require('./models/SignedOrderModel');
+const order_watchers_factory_1 = require('./order_watchers/order_watchers_factory');
 const paginator_1 = require('./paginator');
-const utils_2 = require('./utils');
+const types_2 = require('./types');
+const DEFAULT_ERC721_ASSET = {
+    minAmount: new _0x_js_1.BigNumber(0),
+    maxAmount: new _0x_js_1.BigNumber(1),
+    precision: 0,
+};
+const DEFAULT_ERC20_ASSET = {
+    minAmount: new _0x_js_1.BigNumber(0),
+    maxAmount: constants_1.MAX_TOKEN_SUPPLY_POSSIBLE,
+    precision: config_1.DEFAULT_ERC20_TOKEN_PRECISION,
+};
 class OrderBook {
     static async getOrderByHashIfExistsAsync(orderHash) {
         const connection = db_connection_1.getDBConnection();
@@ -28,45 +38,6 @@ class OrderBook {
     static async getAssetPairsAsync(page, perPage, assetDataA, assetDataB) {
         const connection = db_connection_1.getDBConnection();
         const signedOrderModels = await connection.manager.find(SignedOrderModel_1.SignedOrderModel);
-        const erc721AssetDataToAsset = assetData => {
-            const asset = {
-                minAmount: new _0x_js_1.BigNumber(0),
-                maxAmount: new _0x_js_1.BigNumber(1),
-                precision: 0,
-                assetData,
-            };
-            return asset;
-        };
-        const erc20AssetDataToAsset = assetData => {
-            const asset = {
-                minAmount: new _0x_js_1.BigNumber(0),
-                maxAmount: constants_1.MAX_TOKEN_SUPPLY_POSSIBLE,
-                precision: config_1.DEFAULT_ERC20_TOKEN_PRECISION,
-                assetData,
-            };
-            return asset;
-        };
-        const assetDataToAsset = assetData => {
-            const assetProxyId = _0x_js_1.assetDataUtils.decodeAssetProxyId(assetData);
-            let asset;
-            switch (assetProxyId) {
-                case types_1.AssetProxyId.ERC20:
-                    asset = erc20AssetDataToAsset(assetData);
-                    break;
-                case types_1.AssetProxyId.ERC721:
-                    asset = erc721AssetDataToAsset(assetData);
-                    break;
-                default:
-                    throw utils_1.errorUtils.spawnSwitchErr('assetProxyId', assetProxyId);
-            }
-            return asset;
-        };
-        const signedOrderToAssetPair = signedOrder => {
-            return {
-                assetDataA: assetDataToAsset(signedOrder.makerAssetData),
-                assetDataB: assetDataToAsset(signedOrder.takerAssetData),
-            };
-        };
         const assetPairsItems = signedOrderModels.map(deserializeOrder).map(signedOrderToAssetPair);
         let nonPaginatedFilteredAssetPairs;
         if (assetDataA === undefined && assetDataB === undefined) {
@@ -86,59 +57,25 @@ class OrderBook {
         const paginatedFilteredAssetPairs = paginator_1.paginate(uniqueNonPaginatedFilteredAssetPairs, page, perPage);
         return paginatedFilteredAssetPairs;
     }
+    static async onOrderLifeCycleEventAsync(lifecycleEvent, order) {
+        const connection = db_connection_1.getDBConnection();
+        if (lifecycleEvent === types_2.OrderWatcherLifeCycleEvents.Add) {
+            const signedOrderModel = serializeOrder(order);
+            await connection.manager.save(signedOrderModel);
+        } else if (lifecycleEvent === types_2.OrderWatcherLifeCycleEvents.Remove) {
+            const orderHash = _0x_js_1.orderHashUtils.getOrderHashHex(order);
+            await connection.manager.delete(SignedOrderModel_1.SignedOrderModel, orderHash);
+        }
+    }
     constructor() {
-        const provider = new _0x_js_1.Web3ProviderEngine();
-        provider.addProvider(new _0x_js_1.RPCSubprovider(config_1.RPC_URL));
-        provider.start();
-        this._shadowedOrders = new Map();
-        this._contractWrappers = new _0x_js_1.ContractWrappers(provider, {
-            networkId: config_1.NETWORK_ID,
-        });
-        this._orderWatcher = new order_watcher_1.OrderWatcher(provider, config_1.NETWORK_ID);
-        this._orderWatcher.subscribe(this.onOrderStateChangeCallback.bind(this));
-        utils_1.intervalUtils.setAsyncExcludingInterval(
-            this.onCleanUpInvalidOrdersAsync.bind(this),
-            config_1.PERMANENT_CLEANUP_INTERVAL_MS,
-            utils_2.utils.log,
-        );
-    }
-    onOrderStateChangeCallback(err, orderState) {
-        if (err !== null) {
-            utils_2.utils.log(err);
-        } else {
-            const state = orderState;
-            if (!state.isValid) {
-                this._shadowedOrders.set(state.orderHash, Date.now());
-            } else {
-                this._shadowedOrders.delete(state.orderHash);
-            }
-        }
-    }
-    async onCleanUpInvalidOrdersAsync() {
-        const permanentlyExpiredOrders = [];
-        for (const [orderHash, shadowedAt] of this._shadowedOrders) {
-            const now = Date.now();
-            if (shadowedAt + config_1.ORDER_SHADOWING_MARGIN_MS < now) {
-                permanentlyExpiredOrders.push(orderHash);
-                this._shadowedOrders.delete(orderHash); // we need to remove this order so we don't keep shadowing it
-                this._orderWatcher.removeOrder(orderHash); // also remove from order watcher to avoid more callbacks
-            }
-        }
-        if (!_.isEmpty(permanentlyExpiredOrders)) {
-            const connection = db_connection_1.getDBConnection();
-            await connection.manager.delete(SignedOrderModel_1.SignedOrderModel, permanentlyExpiredOrders);
-        }
+        // tslint:disable-next-line: no-unbound-method
+        this._orderWatcher = order_watchers_factory_1.OrderWatchersFactory.build(OrderBook.onOrderLifeCycleEventAsync);
     }
     async addOrderAsync(signedOrder) {
-        const connection = db_connection_1.getDBConnection();
-        // Validate transfers to a non 0 default address. Some tokens cannot be transferred to
-        // the null address (default)
-        await this._contractWrappers.exchange.validateOrderFillableOrThrowAsync(signedOrder, {
-            simulationTakerAddress: config_1.DEFAULT_TAKER_SIMULATION_ADDRESS,
-        });
-        await this._orderWatcher.addOrderAsync(signedOrder);
-        const signedOrderModel = serializeOrder(signedOrder);
-        await connection.manager.save(signedOrderModel);
+        const { rejected } = await this._orderWatcher.addOrdersAsync([signedOrder]);
+        if (rejected.length !== 0) {
+            throw new Error(rejected[0].message);
+        }
     }
     async getOrderBookAsync(page, perPage, baseAssetData, quoteAssetData) {
         const connection = db_connection_1.getDBConnection();
@@ -150,12 +87,12 @@ class OrderBook {
         });
         const bidApiOrders = bidSignedOrderModels
             .map(deserializeOrder)
-            .filter(order => !this._shadowedOrders.has(_0x_js_1.orderHashUtils.getOrderHashHex(order)))
+            .filter(order => !this._orderWatcher.orderFilter(order))
             .sort((orderA, orderB) => compareBidOrder(orderA, orderB))
             .map(signedOrder => ({ metaData: {}, order: signedOrder }));
         const askApiOrders = askSignedOrderModels
             .map(deserializeOrder)
-            .filter(order => !this._shadowedOrders.has(_0x_js_1.orderHashUtils.getOrderHashHex(order)))
+            .filter(order => !this._orderWatcher.orderFilter(order))
             .sort((orderA, orderB) => compareAskOrder(orderA, orderB))
             .map(signedOrder => ({ metaData: {}, order: signedOrder }));
         const paginatedBidApiOrders = paginator_1.paginate(bidApiOrders, page, perPage);
@@ -185,7 +122,7 @@ class OrderBook {
         let signedOrders = _.map(signedOrderModels, deserializeOrder);
         // Post-filters
         signedOrders = signedOrders
-            .filter(order => !this._shadowedOrders.has(_0x_js_1.orderHashUtils.getOrderHashHex(order)))
+            .filter(order => !this._orderWatcher.orderFilter(order))
             .filter(
                 // traderAddress
                 signedOrder =>
@@ -227,12 +164,11 @@ class OrderBook {
         const connection = db_connection_1.getDBConnection();
         const signedOrderModels = await connection.manager.find(SignedOrderModel_1.SignedOrderModel);
         const signedOrders = signedOrderModels.map(deserializeOrder);
-        for (const signedOrder of signedOrders) {
-            try {
-                await this._contractWrappers.exchange.validateOrderFillableOrThrowAsync(signedOrder);
-                await this._orderWatcher.addOrderAsync(signedOrder);
-            } catch (err) {
-                const orderHash = _0x_js_1.orderHashUtils.getOrderHashHex(signedOrder);
+        const { rejected } = await this._orderWatcher.addOrdersAsync(signedOrders);
+        for (const rejectedResult of rejected) {
+            // Mesh Order has already stored the order, this is not an invalidation, so don't delete
+            if (rejectedResult.message !== undefined && rejectedResult.message.indexOf('OrderAlreadyStored') === -1) {
+                const orderHash = _0x_js_1.orderHashUtils.getOrderHashHex(rejectedResult.order);
                 await connection.manager.delete(SignedOrderModel_1.SignedOrderModel, orderHash);
             }
         }
@@ -272,9 +208,10 @@ const includesTokenAddress = (assetData, tokenAddress) => {
             }
         }
         return false;
-    } else {
+    } else if (!_0x_js_1.assetDataUtils.isStaticCallAssetData(decodedAssetData)) {
         return decodedAssetData.tokenAddress === tokenAddress;
     }
+    return false;
 };
 const deserializeOrder = signedOrderModel => {
     const signedOrder = {
@@ -314,4 +251,33 @@ const serializeOrder = signedOrder => {
         hash: _0x_js_1.orderHashUtils.getOrderHashHex(signedOrder),
     });
     return signedOrderModel;
+};
+const erc721AssetDataToAsset = assetData => ({
+    ...DEFAULT_ERC721_ASSET,
+    assetData,
+});
+const erc20AssetDataToAsset = assetData => ({
+    ...DEFAULT_ERC20_ASSET,
+    assetData,
+});
+const assetDataToAsset = assetData => {
+    const assetProxyId = _0x_js_1.assetDataUtils.decodeAssetProxyId(assetData);
+    let asset;
+    switch (assetProxyId) {
+        case types_1.AssetProxyId.ERC20:
+            asset = erc20AssetDataToAsset(assetData);
+            break;
+        case types_1.AssetProxyId.ERC721:
+            asset = erc721AssetDataToAsset(assetData);
+            break;
+        default:
+            throw utils_1.errorUtils.spawnSwitchErr('assetProxyId', assetProxyId);
+    }
+    return asset;
+};
+const signedOrderToAssetPair = signedOrder => {
+    return {
+        assetDataA: assetDataToAsset(signedOrder.makerAssetData),
+        assetDataB: assetDataToAsset(signedOrder.takerAssetData),
+    };
 };

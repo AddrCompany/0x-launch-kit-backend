@@ -20,6 +20,9 @@ exports.utils = {
             throw new errors_1.ValidationError(validationErrorItems);
         }
     },
+    async sleepAsync(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    },
 };
 function schemaValidationErrorToValidationErrorItem(schemaValidationError) {
     if (

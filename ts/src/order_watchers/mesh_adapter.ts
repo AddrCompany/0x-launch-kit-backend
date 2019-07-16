@@ -99,12 +99,16 @@ interface ValidationResults {
     rejected: RejectedOrderInfo[];
 }
 
-const BATCH_SIZE = 18;
 const SLEEP_INTERVAL = 1000;
+// Mesh ticks at 5 seconds, allow for a little latency
+const HEARTBEAT_INTERVAL = 6000;
+const GET_ORDERS_MAX_SIZE = 1000;
+const BATCH_SIZE = 1000;
 
 export class MeshAdapter {
-    private _wsClient: any;
+    private _wsClient!: Web3Providers.WebsocketProvider;
     private _isConnectedToMesh: boolean = false;
+    private _lastHeartbeat?: Date;
     private readonly _lifeCycleEventCallback: OrderWatcherLifeCycleCallback;
     constructor(lifeCycleEventCallback: OrderWatcherLifeCycleCallback) {
         this._lifeCycleEventCallback = lifeCycleEventCallback;
@@ -115,20 +119,17 @@ export class MeshAdapter {
         if (orders.length === 0) {
             return validationResults;
         }
-        while (!this._isConnectedToMesh) {
-            utils.log('Attempting to connnect to Mesh...');
-            await utils.sleepAsync(SLEEP_INTERVAL);
-        }
+        await this._waitForMeshAsync();
         const orderChunks = _.chunk(orders, BATCH_SIZE);
         for (const chunk of orderChunks) {
             const { accepted, rejected } = await this._submitOrdersToMeshAsync(chunk);
             const adaptAcceptedValidationResults: AdaptedOrderAndValidationResult[] = (accepted || []).map(r => ({
-                order: orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder),
+                order: lowerCaseOrder(orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder)),
                 message: undefined,
             }));
             const adaptRejectedValidationResults: AdaptedOrderAndValidationResult[] = (rejected || []).map(r => ({
-                order: orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder),
-                message: `${r.kind} ${(r.status as any).Code}: ${(r.status as any).Message}`,
+                order: lowerCaseOrder(orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder)),
+                message: `${r.kind} ${r.status.code}: ${r.status.message}`,
             }));
             validationResults.accepted = [...validationResults.accepted, ...adaptAcceptedValidationResults];
             validationResults.rejected = [...validationResults.rejected, ...adaptRejectedValidationResults];
@@ -136,7 +137,7 @@ export class MeshAdapter {
         return validationResults;
     }
     // tslint:disable-next-line: prefer-function-over-method no-empty
-    public removeOrders(_orders: SignedOrder[]): void { }
+    public removeOrders(_orders: SignedOrder[]): void {}
     // tslint:disable-next-line: prefer-function-over-method
     public orderFilter(_order: SignedOrder): boolean {
         return false;
@@ -144,18 +145,41 @@ export class MeshAdapter {
     private async _connectToMeshAsync(): Promise<void> {
         while (!this._isConnectedToMesh) {
             try {
-                this._wsClient = new Web3Providers.WebsocketProvider(MESH_ENDPOINT);
+                const clientConfig = { fragmentOutgoingMessages: false };
+                this._wsClient = new Web3Providers.WebsocketProvider(MESH_ENDPOINT, {
+                    clientConfig: clientConfig as any, // HACK: Types are saying this is a string
+                });
+                const heartbeatSubscriptionId = await this._wsClient.subscribe('mesh_subscribe', 'heartbeat', []);
+                this._wsClient.on(heartbeatSubscriptionId, () => (this._lastHeartbeat = new Date()));
                 const subscriptionId = await this._wsClient.subscribe('mesh_subscribe', 'orders', []);
-                this._wsClient.on(subscriptionId, this._onOrderEventCallbackAsync.bind(this));
+                this._wsClient.on(subscriptionId, this._onOrderEventCallbackAsync.bind(this) as any);
                 this._isConnectedToMesh = true;
+                utils.log('Connected to Mesh');
+                let heartbeatCheckInterval: NodeJS.Timeout;
+                heartbeatCheckInterval = setInterval(() => {
+                    if (
+                        this._lastHeartbeat === undefined ||
+                        Date.now() - this._lastHeartbeat.valueOf() > HEARTBEAT_INTERVAL
+                    ) {
+                        utils.log('Disconnected from Mesh');
+                        clearInterval(heartbeatCheckInterval);
+                        this._isConnectedToMesh = false;
+                        this._lastHeartbeat = undefined;
+                        void this._connectToMeshAsync();
+                    }
+                }, HEARTBEAT_INTERVAL);
+                void this._fetchOrdersAsync();
             } catch (err) {
+                console.log(err);
                 await utils.sleepAsync(SLEEP_INTERVAL);
             }
         }
     }
     private async _onOrderEventCallbackAsync(eventPayload: OrderEventPayload): Promise<void> {
         for (const event of eventPayload.result) {
-            const signedOrder = orderParsingUtils.convertOrderStringFieldsToBigNumber(event.signedOrder);
+            const signedOrder = lowerCaseOrder(
+                orderParsingUtils.convertOrderStringFieldsToBigNumber(event.signedOrder),
+            );
             switch (event.kind) {
                 case OrderEventKind.Added: {
                     this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, signedOrder);
@@ -182,14 +206,49 @@ export class MeshAdapter {
     }
 
     private async _submitOrdersToMeshAsync(signedOrders: SignedOrder[]): Promise<ValidationResults> {
+        await this._waitForMeshAsync();
         const stringifiedSignedOrders = signedOrders.map(stringifyOrder);
         const validationResults: ValidationResults = await this._wsClient.send('mesh_addOrders', [
             stringifiedSignedOrders,
         ]);
         return validationResults;
     }
+    private async _waitForMeshAsync(): Promise<void> {
+        while (!this._isConnectedToMesh) {
+            await utils.sleepAsync(SLEEP_INTERVAL);
+        }
+    }
+    private async _fetchOrdersAsync(): Promise<void> {
+        await this._waitForMeshAsync();
+        let page = 0;
+        let { ordersInfos, subscriptionID } = await this._wsClient.send('mesh_getOrders', [
+            page,
+            GET_ORDERS_MAX_SIZE,
+            '',
+        ]);
+        do {
+            for (const orderInfo of ordersInfos) {
+                const signedOrder = lowerCaseOrder(
+                    orderParsingUtils.convertOrderStringFieldsToBigNumber(orderInfo.signedOrder),
+                );
+                this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, signedOrder);
+            }
+            page++;
+            ordersInfos = (await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, subscriptionID]))
+                .ordersInfos;
+        } while (Object.keys(ordersInfos).length > 0);
+    }
 }
 
+const lowerCaseOrder = (signedOrder: SignedOrder): SignedOrder => {
+    return {
+        ...signedOrder,
+        makerAddress: signedOrder.makerAddress.toLowerCase(),
+        takerAddress: signedOrder.takerAddress.toLowerCase(),
+        exchangeAddress: signedOrder.exchangeAddress.toLocaleLowerCase(),
+        feeRecipientAddress: signedOrder.feeRecipientAddress.toLowerCase(),
+    };
+};
 const stringifyOrder = (signedOrder: SignedOrder): StringifiedSignedOrder => {
     const stringifiedSignedOrder = {
         signature: signedOrder.signature,

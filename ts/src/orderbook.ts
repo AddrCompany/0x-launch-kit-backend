@@ -3,14 +3,13 @@ import { APIOrder, OrderbookResponse, PaginatedCollection } from '@0x/connect';
 import { Asset, AssetPairsItem, AssetProxyId, OrdersRequestOpts } from '@0x/types';
 import { errorUtils } from '@0x/utils';
 import * as _ from 'lodash';
-
 import { DEFAULT_ERC20_TOKEN_PRECISION } from './config';
 import { MAX_TOKEN_SUPPLY_POSSIBLE } from './constants';
 import { getDBConnection } from './db_connection';
 import { SignedOrderModel } from './models/SignedOrderModel';
 import { MeshAdapter } from './order_watchers/mesh_adapter';
-import { OrderWatcherAdapter } from './order_watchers/order_watcher_adapter';
 import { OrderWatchersFactory } from './order_watchers/order_watchers_factory';
+import { OrderWatcherAdapter } from './order_watchers/order_watcher_adapter';
 import { paginate } from './paginator';
 import { OrderWatcherLifeCycleEvents } from './types';
 
@@ -169,14 +168,14 @@ export class OrderBook {
                 signedOrder =>
                     ordersFilterParams.makerAssetProxyId === undefined ||
                     assetDataUtils.decodeAssetDataOrThrow(signedOrder.makerAssetData).assetProxyId ===
-                    ordersFilterParams.makerAssetProxyId,
+                        ordersFilterParams.makerAssetProxyId,
             )
             .filter(
                 // makerAssetProxyId
                 signedOrder =>
                     ordersFilterParams.takerAssetProxyId === undefined ||
                     assetDataUtils.decodeAssetDataOrThrow(signedOrder.takerAssetData).assetProxyId ===
-                    ordersFilterParams.takerAssetProxyId,
+                        ordersFilterParams.takerAssetProxyId,
             );
         const apiOrders: APIOrder[] = signedOrders.map(signedOrder => ({ metaData: {}, order: signedOrder }));
         const paginatedApiOrders = paginate(apiOrders, page, perPage);
@@ -191,7 +190,7 @@ export class OrderBook {
         const { rejected } = await this._orderWatcher.addOrdersAsync(signedOrders);
         for (const rejectedResult of rejected) {
             // Mesh Order has already stored the order, this is not an invalidation, so don't delete
-            if (rejectedResult.message && rejectedResult.message.indexOf('OrderAlreadyStored') === -1) {
+            if (rejectedResult.message !== undefined && rejectedResult.message.indexOf('OrderAlreadyStored') === -1) {
                 const orderHash = orderHashUtils.getOrderHashHex(rejectedResult.order);
                 await connection.manager.delete(SignedOrderModel, orderHash);
             }
@@ -238,9 +237,10 @@ const includesTokenAddress = (assetData: string, tokenAddress: string): boolean 
             }
         }
         return false;
-    } else {
+    } else if (!assetDataUtils.isStaticCallAssetData(decodedAssetData)) {
         return decodedAssetData.tokenAddress === tokenAddress;
     }
+    return false;
 };
 
 const deserializeOrder = (signedOrderModel: Required<SignedOrderModel>): SignedOrder => {

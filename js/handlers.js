@@ -74,6 +74,12 @@ class Handlers {
     }
     async initOrderBookAsync() {
         await this._orderBook.addExistingOrdersToOrderWatcherAsync();
+        // HACK: if there is network disconnect between Mesh and Launch Kit
+        // then we can miss updates for some orders we care about.
+        // This clean up will ensure these orders are removed
+        setInterval(async () => {
+            await this._orderBook.addExistingOrdersToOrderWatcherAsync();
+        }, 30000);
     }
     async ordersAsync(req, res) {
         utils_1.utils.validateSchema(req.query, json_schemas_1.schemas.ordersRequestOptsSchema);
@@ -118,7 +124,7 @@ function validateAssetDataIsWhitelistedOrThrow(allowedTokens, assetData, field) 
         for (const [, nestedAssetDataElement] of decodedAssetData.nestedAssetData.entries()) {
             validateAssetDataIsWhitelistedOrThrow(allowedTokens, nestedAssetDataElement, field);
         }
-    } else {
+    } else if (!_0x_js_1.assetDataUtils.isStaticCallAssetData(decodedAssetData)) {
         if (!_.includes(allowedTokens, decodedAssetData.tokenAddress)) {
             throw new errors_1.ValidationError([
                 {
