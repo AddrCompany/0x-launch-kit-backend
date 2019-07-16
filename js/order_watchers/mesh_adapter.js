@@ -1,44 +1,44 @@
-'use strict';
-Object.defineProperty(exports, '__esModule', { value: true });
-const order_utils_1 = require('@0x/order-utils');
-const _ = require('lodash');
-const Web3Providers = require('web3-providers');
-const config_1 = require('../config');
-const types_1 = require('../types');
-const utils_1 = require('../utils');
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const order_utils_1 = require("@0x/order-utils");
+const _ = require("lodash");
+const Web3Providers = require("web3-providers");
+const config_1 = require("../config");
+const types_1 = require("../types");
+const utils_1 = require("../utils");
 var OrderEventKind;
-(function(OrderEventKind) {
-    OrderEventKind['Invalid'] = 'INVALID';
-    OrderEventKind['Added'] = 'ADDED';
-    OrderEventKind['Filled'] = 'FILLED';
-    OrderEventKind['FullyFilled'] = 'FULLY_FILLED';
-    OrderEventKind['Cancelled'] = 'CANCELLED';
-    OrderEventKind['Expired'] = 'EXPIRED';
-    OrderEventKind['Unfunded'] = 'UNFUNDED';
-    OrderEventKind['FillabilityIncreased'] = 'FILLABILITY_INCREASED';
+(function (OrderEventKind) {
+    OrderEventKind["Invalid"] = "INVALID";
+    OrderEventKind["Added"] = "ADDED";
+    OrderEventKind["Filled"] = "FILLED";
+    OrderEventKind["FullyFilled"] = "FULLY_FILLED";
+    OrderEventKind["Cancelled"] = "CANCELLED";
+    OrderEventKind["Expired"] = "EXPIRED";
+    OrderEventKind["Unfunded"] = "UNFUNDED";
+    OrderEventKind["FillabilityIncreased"] = "FILLABILITY_INCREASED";
 })(OrderEventKind || (OrderEventKind = {}));
 var RejectedKind;
-(function(RejectedKind) {
-    RejectedKind['ZeroexValidation'] = 'ZEROEX_VALIDATION';
-    RejectedKind['MeshError'] = 'MESH_ERROR';
-    RejectedKind['MeshValidation'] = 'MESH_VALIDATION';
+(function (RejectedKind) {
+    RejectedKind["ZeroexValidation"] = "ZEROEX_VALIDATION";
+    RejectedKind["MeshError"] = "MESH_ERROR";
+    RejectedKind["MeshValidation"] = "MESH_VALIDATION";
 })(RejectedKind || (RejectedKind = {}));
 var RejectedCode;
-(function(RejectedCode) {
-    RejectedCode['InternalError'] = 'InternalError';
-    RejectedCode['MaxOrderSizeExceeded'] = 'MaxOrderSizeExceeded';
-    RejectedCode['OrderAlreadyStored'] = 'OrderAlreadyStored';
-    RejectedCode['OrderForIncorrectNetwork'] = 'OrderForIncorrectNetwork';
-    RejectedCode['NetworkRequestFailed'] = 'NetworkRequestFailed';
-    RejectedCode['OrderHasInvalidMakerAssetAmount'] = 'OrderHasInvalidMakerAssetAmount';
-    RejectedCode['OrderHasInvalidTakerAssetAmount'] = 'OrderHasInvalidTakerAssetAmount';
-    RejectedCode['OrderExpired'] = 'OrderExpired';
-    RejectedCode['OrderFullyFilled'] = 'OrderFullyFilled';
-    RejectedCode['OrderCancelled'] = 'OrderCancelled';
-    RejectedCode['OrderUnfunded'] = 'OrderUnfunded';
-    RejectedCode['OrderHasInvalidMakerAssetData'] = 'OrderHasInvalidMakerAssetData';
-    RejectedCode['OrderHasInvalidTakerAssetData'] = 'OrderHasInvalidTakerAssetData';
-    RejectedCode['OrderHasInvalidSignature'] = 'OrderHasInvalidSignature';
+(function (RejectedCode) {
+    RejectedCode["InternalError"] = "InternalError";
+    RejectedCode["MaxOrderSizeExceeded"] = "MaxOrderSizeExceeded";
+    RejectedCode["OrderAlreadyStored"] = "OrderAlreadyStored";
+    RejectedCode["OrderForIncorrectNetwork"] = "OrderForIncorrectNetwork";
+    RejectedCode["NetworkRequestFailed"] = "NetworkRequestFailed";
+    RejectedCode["OrderHasInvalidMakerAssetAmount"] = "OrderHasInvalidMakerAssetAmount";
+    RejectedCode["OrderHasInvalidTakerAssetAmount"] = "OrderHasInvalidTakerAssetAmount";
+    RejectedCode["OrderExpired"] = "OrderExpired";
+    RejectedCode["OrderFullyFilled"] = "OrderFullyFilled";
+    RejectedCode["OrderCancelled"] = "OrderCancelled";
+    RejectedCode["OrderUnfunded"] = "OrderUnfunded";
+    RejectedCode["OrderHasInvalidMakerAssetData"] = "OrderHasInvalidMakerAssetData";
+    RejectedCode["OrderHasInvalidTakerAssetData"] = "OrderHasInvalidTakerAssetData";
+    RejectedCode["OrderHasInvalidSignature"] = "OrderHasInvalidSignature";
 })(RejectedCode || (RejectedCode = {}));
 const SLEEP_INTERVAL = 1000;
 // Mesh ticks at 5 seconds, allow for a little latency
@@ -61,15 +61,11 @@ class MeshAdapter {
         for (const chunk of orderChunks) {
             const { accepted, rejected } = await this._submitOrdersToMeshAsync(chunk);
             const adaptAcceptedValidationResults = (accepted || []).map(r => ({
-                order: lowerCaseOrder(
-                    order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder),
-                ),
+                order: lowerCaseOrder(order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder)),
                 message: undefined,
             }));
             const adaptRejectedValidationResults = (rejected || []).map(r => ({
-                order: lowerCaseOrder(
-                    order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder),
-                ),
+                order: lowerCaseOrder(order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder)),
                 message: `${r.kind} ${r.status.code}: ${r.status.message}`,
             }));
             validationResults.accepted = [...validationResults.accepted, ...adaptAcceptedValidationResults];
@@ -78,7 +74,7 @@ class MeshAdapter {
         return validationResults;
     }
     // tslint:disable-next-line: prefer-function-over-method no-empty
-    removeOrders(_orders) {}
+    removeOrders(_orders) { }
     // tslint:disable-next-line: prefer-function-over-method
     orderFilter(_order) {
         return false;
@@ -98,10 +94,8 @@ class MeshAdapter {
                 utils_1.utils.log('Connected to Mesh');
                 let heartbeatCheckInterval;
                 heartbeatCheckInterval = setInterval(() => {
-                    if (
-                        this._lastHeartbeat === undefined ||
-                        Date.now() - this._lastHeartbeat.valueOf() > HEARTBEAT_INTERVAL
-                    ) {
+                    if (this._lastHeartbeat === undefined ||
+                        Date.now() - this._lastHeartbeat.valueOf() > HEARTBEAT_INTERVAL) {
                         utils_1.utils.log('Disconnected from Mesh');
                         clearInterval(heartbeatCheckInterval);
                         this._isConnectedToMesh = false;
@@ -110,7 +104,8 @@ class MeshAdapter {
                     }
                 }, HEARTBEAT_INTERVAL);
                 void this._fetchOrdersAsync();
-            } catch (err) {
+            }
+            catch (err) {
                 console.log(err);
                 await utils_1.utils.sleepAsync(SLEEP_INTERVAL);
             }
@@ -118,9 +113,7 @@ class MeshAdapter {
     }
     async _onOrderEventCallbackAsync(eventPayload) {
         for (const event of eventPayload.result) {
-            const signedOrder = lowerCaseOrder(
-                order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(event.signedOrder),
-            );
+            const signedOrder = lowerCaseOrder(order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(event.signedOrder));
             switch (event.kind) {
                 case OrderEventKind.Added: {
                     this._lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Add, signedOrder);
@@ -148,7 +141,9 @@ class MeshAdapter {
     async _submitOrdersToMeshAsync(signedOrders) {
         await this._waitForMeshAsync();
         const stringifiedSignedOrders = signedOrders.map(stringifyOrder);
-        const validationResults = await this._wsClient.send('mesh_addOrders', [stringifiedSignedOrders]);
+        const validationResults = await this._wsClient.send('mesh_addOrders', [
+            stringifiedSignedOrders,
+        ]);
         return validationResults;
     }
     async _waitForMeshAsync() {
@@ -159,26 +154,24 @@ class MeshAdapter {
     async _fetchOrdersAsync() {
         await this._waitForMeshAsync();
         let page = 0;
-        let { ordersInfos, subscriptionID } = await this._wsClient.send('mesh_getOrders', [
+        let { ordersInfos, snapshotID } = await this._wsClient.send('mesh_getOrders', [
             page,
             GET_ORDERS_MAX_SIZE,
             '',
         ]);
         do {
             for (const orderInfo of ordersInfos) {
-                const signedOrder = lowerCaseOrder(
-                    order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(orderInfo.signedOrder),
-                );
+                const signedOrder = lowerCaseOrder(order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(orderInfo.signedOrder));
                 this._lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Add, signedOrder);
             }
             page++;
-            ordersInfos = (await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, subscriptionID]))
+            ordersInfos = (await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, snapshotID]))
                 .ordersInfos;
         } while (Object.keys(ordersInfos).length > 0);
     }
 }
 exports.MeshAdapter = MeshAdapter;
-const lowerCaseOrder = signedOrder => {
+const lowerCaseOrder = (signedOrder) => {
     return {
         ...signedOrder,
         makerAddress: signedOrder.makerAddress.toLowerCase(),
@@ -187,7 +180,7 @@ const lowerCaseOrder = signedOrder => {
         feeRecipientAddress: signedOrder.feeRecipientAddress.toLowerCase(),
     };
 };
-const stringifyOrder = signedOrder => {
+const stringifyOrder = (signedOrder) => {
     const stringifiedSignedOrder = {
         signature: signedOrder.signature,
         senderAddress: signedOrder.senderAddress,

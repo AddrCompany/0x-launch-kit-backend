@@ -1,11 +1,11 @@
-'use strict';
-Object.defineProperty(exports, '__esModule', { value: true });
-const _0x_js_1 = require('0x.js');
-const order_watcher_1 = require('@0x/order-watcher');
-const utils_1 = require('@0x/utils');
-const config_1 = require('../config');
-const types_1 = require('../types');
-const utils_2 = require('../utils');
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const _0x_js_1 = require("0x.js");
+const order_watcher_1 = require("@0x/order-watcher");
+const utils_1 = require("@0x/utils");
+const config_1 = require("../config");
+const types_1 = require("../types");
+const utils_2 = require("../utils");
 class OrderWatcherAdapter {
     constructor(provider, networkId, lifeCycleEventCallback, contractWrappers) {
         this._shadowedOrderHashes = new Map();
@@ -15,39 +15,37 @@ class OrderWatcherAdapter {
         this._orderWatcher.subscribe((err, orderState) => {
             if (err) {
                 utils_2.utils.log(err);
-            } else {
+            }
+            else {
                 const state = orderState;
                 if (!state.isValid) {
                     this._shadowedOrderHashes.set(state.orderHash, Date.now());
-                } else {
+                }
+                else {
                     this._shadowedOrderHashes.delete(state.orderHash);
                 }
             }
         });
-        utils_1.intervalUtils.setAsyncExcludingInterval(
-            async () => {
-                const permanentlyExpiredOrders = [];
-                for (const [orderHash, shadowedAt] of this._shadowedOrderHashes) {
-                    const now = Date.now();
-                    if (shadowedAt + config_1.ORDER_SHADOWING_MARGIN_MS < now) {
-                        permanentlyExpiredOrders.push(orderHash);
+        utils_1.intervalUtils.setAsyncExcludingInterval(async () => {
+            const permanentlyExpiredOrders = [];
+            for (const [orderHash, shadowedAt] of this._shadowedOrderHashes) {
+                const now = Date.now();
+                if (shadowedAt + config_1.ORDER_SHADOWING_MARGIN_MS < now) {
+                    permanentlyExpiredOrders.push(orderHash);
+                }
+            }
+            if (permanentlyExpiredOrders.length !== 0) {
+                for (const orderHash of permanentlyExpiredOrders) {
+                    const order = this._orders.get(orderHash);
+                    if (order) {
+                        lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Remove, order);
+                        this._shadowedOrderHashes.delete(orderHash); // we need to remove this order so we don't keep shadowing it
+                        this._orders.delete(orderHash);
+                        this._orderWatcher.removeOrder(orderHash); // also remove from order watcher to avoid more callbacks
                     }
                 }
-                if (permanentlyExpiredOrders.length !== 0) {
-                    for (const orderHash of permanentlyExpiredOrders) {
-                        const order = this._orders.get(orderHash);
-                        if (order) {
-                            lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Remove, order);
-                            this._shadowedOrderHashes.delete(orderHash); // we need to remove this order so we don't keep shadowing it
-                            this._orders.delete(orderHash);
-                            this._orderWatcher.removeOrder(orderHash); // also remove from order watcher to avoid more callbacks
-                        }
-                    }
-                }
-            },
-            config_1.PERMANENT_CLEANUP_INTERVAL_MS,
-            utils_2.utils.log,
-        );
+            }
+        }, config_1.PERMANENT_CLEANUP_INTERVAL_MS, utils_2.utils.log);
         this._contractWrappers = contractWrappers;
     }
     async addOrdersAsync(orders) {
@@ -63,7 +61,8 @@ class OrderWatcherAdapter {
                 const orderHash = _0x_js_1.orderHashUtils.getOrderHashHex(order);
                 this._orders.set(orderHash, order);
                 this._lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Add, order);
-            } catch (err) {
+            }
+            catch (err) {
                 rejected.push({ order, message: err.message });
             }
         }

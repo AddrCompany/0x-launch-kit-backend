@@ -221,7 +221,7 @@ export class MeshAdapter {
     private async _fetchOrdersAsync(): Promise<void> {
         await this._waitForMeshAsync();
         let page = 0;
-        let { ordersInfos, subscriptionID } = await this._wsClient.send('mesh_getOrders', [
+        let { ordersInfos, snapshotID } = await this._wsClient.send('mesh_getOrders', [
             page,
             GET_ORDERS_MAX_SIZE,
             '',
@@ -234,7 +234,7 @@ export class MeshAdapter {
                 this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, signedOrder);
             }
             page++;
-            ordersInfos = (await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, subscriptionID]))
+            ordersInfos = (await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, snapshotID]))
                 .ordersInfos;
         } while (Object.keys(ordersInfos).length > 0);
     }
