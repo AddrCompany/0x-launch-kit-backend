@@ -55,15 +55,17 @@ class OrderBook {
         const paginatedFilteredAssetPairs = paginator_1.paginate(uniqueNonPaginatedFilteredAssetPairs, page, perPage);
         return paginatedFilteredAssetPairs;
     }
-    static async onOrderLifeCycleEventAsync(lifecycleEvent, order) {
+    static async onOrderLifeCycleEventAsync(lifecycleEvent, orders) {
         const connection = db_connection_1.getDBConnection();
         if (lifecycleEvent === types_2.OrderWatcherLifeCycleEvents.Add) {
-            const signedOrderModel = serializeOrder(order);
-            await connection.manager.save(signedOrderModel);
+            const signedOrdersModel = orders.map(serializeOrder);
+            await connection.manager.save(signedOrdersModel);
         }
         else if (lifecycleEvent === types_2.OrderWatcherLifeCycleEvents.Remove) {
-            const orderHash = _0x_js_1.orderHashUtils.getOrderHashHex(order);
-            await connection.manager.delete(SignedOrderModel_1.SignedOrderModel, orderHash);
+            for (const order of orders) {
+                const orderHash = _0x_js_1.orderHashUtils.getOrderHashHex(order);
+                await connection.manager.delete(SignedOrderModel_1.SignedOrderModel, orderHash);
+            }
         }
     }
     constructor() {

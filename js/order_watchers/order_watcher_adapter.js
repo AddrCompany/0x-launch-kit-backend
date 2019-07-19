@@ -38,7 +38,7 @@ class OrderWatcherAdapter {
                 for (const orderHash of permanentlyExpiredOrders) {
                     const order = this._orders.get(orderHash);
                     if (order) {
-                        lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Remove, order);
+                        lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Remove, [order]);
                         this._shadowedOrderHashes.delete(orderHash); // we need to remove this order so we don't keep shadowing it
                         this._orders.delete(orderHash);
                         this._orderWatcher.removeOrder(orderHash); // also remove from order watcher to avoid more callbacks
@@ -60,7 +60,7 @@ class OrderWatcherAdapter {
                 accepted.push({ order, message: undefined });
                 const orderHash = _0x_js_1.orderHashUtils.getOrderHashHex(order);
                 this._orders.set(orderHash, order);
-                this._lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Add, order);
+                this._lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Add, [order]);
             }
             catch (err) {
                 rejected.push({ order, message: err.message });

@@ -69,17 +69,17 @@ export class OrderBook {
     }
     public static async onOrderLifeCycleEventAsync(
         lifecycleEvent: OrderWatcherLifeCycleEvents,
-        order: SignedOrder,
+        orders: SignedOrder[],
     ): Promise<void> {
         const connection = getDBConnection();
         if (lifecycleEvent === OrderWatcherLifeCycleEvents.Add) {
-            const signedOrderModel = serializeOrder(order);
-            const orderHash = orderHashUtils.getOrderHashHex(order);
-            console.log('Adding order', orderHash);
-            await connection.manager.save(signedOrderModel);
+            const signedOrdersModel = orders.map(serializeOrder);
+            await connection.manager.save(signedOrdersModel);
         } else if (lifecycleEvent === OrderWatcherLifeCycleEvents.Remove) {
-            const orderHash = orderHashUtils.getOrderHashHex(order);
-            await connection.manager.delete(SignedOrderModel, orderHash);
+            for (const order of orders) {
+                const orderHash = orderHashUtils.getOrderHashHex(order);
+                await connection.manager.delete(SignedOrderModel, orderHash);
+            }
         }
     }
     constructor() {

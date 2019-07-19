@@ -4,7 +4,10 @@ export enum OrderWatcherLifeCycleEvents {
     Add,
     Remove,
 }
-export type OrderWatcherLifeCycleCallback = (lifeCycleEvent: OrderWatcherLifeCycleEvents, order: SignedOrder) => void;
+export type OrderWatcherLifeCycleCallback = (
+    lifeCycleEvent: OrderWatcherLifeCycleEvents,
+    orders: SignedOrder[],
+) => void;
 
 export interface AdaptedOrderAndValidationResult {
     order: SignedOrder;

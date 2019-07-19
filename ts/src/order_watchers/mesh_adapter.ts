@@ -124,11 +124,11 @@ export class MeshAdapter {
         for (const chunk of orderChunks) {
             const { accepted, rejected } = await this._submitOrdersToMeshAsync(chunk);
             const adaptAcceptedValidationResults: AdaptedOrderAndValidationResult[] = (accepted || []).map(r => ({
-                order: lowerCaseOrder(orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder)),
+                order: orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder),
                 message: undefined,
             }));
             const adaptRejectedValidationResults: AdaptedOrderAndValidationResult[] = (rejected || []).map(r => ({
-                order: lowerCaseOrder(orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder)),
+                order: orderParsingUtils.convertOrderStringFieldsToBigNumber(r.signedOrder),
                 message: `${r.kind} ${r.status.code}: ${r.status.message}`,
             }));
             validationResults.accepted = [...validationResults.accepted, ...adaptAcceptedValidationResults];
@@ -176,32 +176,38 @@ export class MeshAdapter {
         }
     }
     private async _onOrderEventCallbackAsync(eventPayload: OrderEventPayload): Promise<void> {
+        const addedOrders = [];
+        const removedOrders = [];
         for (const event of eventPayload.result) {
-            const signedOrder = lowerCaseOrder(
-                orderParsingUtils.convertOrderStringFieldsToBigNumber(event.signedOrder),
-            );
+            const signedOrder = orderParsingUtils.convertOrderStringFieldsToBigNumber(event.signedOrder);
             switch (event.kind) {
                 case OrderEventKind.Added: {
-                    this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, signedOrder);
+                    addedOrders.push(signedOrder);
                     break;
                 }
                 case OrderEventKind.Cancelled:
                 case OrderEventKind.Expired:
                 case OrderEventKind.FullyFilled:
                 case OrderEventKind.Unfunded: {
-                    this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Remove, signedOrder);
+                    removedOrders.push(signedOrder);
                     break;
                 }
                 case OrderEventKind.Filled: {
                     break;
                 }
                 case OrderEventKind.FillabilityIncreased: {
-                    this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, signedOrder);
+                    addedOrders.push(signedOrder);
                     break;
                 }
                 default:
                 // noop
             }
+        }
+        if (addedOrders.length > 0) {
+            this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, addedOrders);
+        }
+        if (removedOrders.length > 0) {
+            this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Remove, removedOrders);
         }
     }
 
@@ -221,18 +227,13 @@ export class MeshAdapter {
     private async _fetchOrdersAsync(): Promise<void> {
         await this._waitForMeshAsync();
         let page = 0;
-        let { ordersInfos, snapshotID } = await this._wsClient.send('mesh_getOrders', [
-            page,
-            GET_ORDERS_MAX_SIZE,
-            '',
-        ]);
+        // tslint:disable-next-line:prefer-const
+        let { ordersInfos, snapshotID } = await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, '']);
         do {
-            for (const orderInfo of ordersInfos) {
-                const signedOrder = lowerCaseOrder(
-                    orderParsingUtils.convertOrderStringFieldsToBigNumber(orderInfo.signedOrder),
-                );
-                this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, signedOrder);
-            }
+            const signedOrders = ordersInfos.map((o: any) =>
+                orderParsingUtils.convertOrderStringFieldsToBigNumber(o.signedOrder),
+            );
+            this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, signedOrders);
             page++;
             ordersInfos = (await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, snapshotID]))
                 .ordersInfos;
@@ -240,15 +241,6 @@ export class MeshAdapter {
     }
 }
 
-const lowerCaseOrder = (signedOrder: SignedOrder): SignedOrder => {
-    return {
-        ...signedOrder,
-        makerAddress: signedOrder.makerAddress.toLowerCase(),
-        takerAddress: signedOrder.takerAddress.toLowerCase(),
-        exchangeAddress: signedOrder.exchangeAddress.toLocaleLowerCase(),
-        feeRecipientAddress: signedOrder.feeRecipientAddress.toLowerCase(),
-    };
-};
 const stringifyOrder = (signedOrder: SignedOrder): StringifiedSignedOrder => {
     const stringifiedSignedOrder = {
         signature: signedOrder.signature,
