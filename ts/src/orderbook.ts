@@ -3,13 +3,14 @@ import { APIOrder, OrderbookResponse, PaginatedCollection } from '@0x/connect';
 import { Asset, AssetPairsItem, AssetProxyId, OrdersRequestOpts } from '@0x/types';
 import { errorUtils } from '@0x/utils';
 import * as _ from 'lodash';
+
 import { DEFAULT_ERC20_TOKEN_PRECISION } from './config';
 import { MAX_TOKEN_SUPPLY_POSSIBLE } from './constants';
 import { getDBConnection } from './db_connection';
 import { SignedOrderModel } from './models/SignedOrderModel';
 import { MeshAdapter } from './order_watchers/mesh_adapter';
-import { OrderWatchersFactory } from './order_watchers/order_watchers_factory';
 import { OrderWatcherAdapter } from './order_watchers/order_watcher_adapter';
+import { OrderWatchersFactory } from './order_watchers/order_watchers_factory';
 import { paginate } from './paginator';
 import { OrderWatcherLifeCycleEvents } from './types';
 
@@ -73,6 +74,8 @@ export class OrderBook {
         const connection = getDBConnection();
         if (lifecycleEvent === OrderWatcherLifeCycleEvents.Add) {
             const signedOrderModel = serializeOrder(order);
+            const orderHash = orderHashUtils.getOrderHashHex(order);
+            console.log('Adding order', orderHash);
             await connection.manager.save(signedOrderModel);
         } else if (lifecycleEvent === OrderWatcherLifeCycleEvents.Remove) {
             const orderHash = orderHashUtils.getOrderHashHex(order);
