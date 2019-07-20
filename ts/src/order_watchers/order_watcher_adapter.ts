@@ -66,6 +66,8 @@ export class OrderWatcherAdapter {
         );
         this._contractWrappers = contractWrappers;
     }
+    // tslint:disable-next-line:prefer-function-over-method no-empty
+    public async fetchOrdersAndCallbackAsync(): Promise<void> {}
 
     public async addOrdersAsync(orders: SignedOrder[]): Promise<AdaptedValidationResults> {
         const accepted: AdaptedOrderAndValidationResult[] = [];

@@ -14,6 +14,9 @@ import { OrderWatchersFactory } from './order_watchers/order_watchers_factory';
 import { paginate } from './paginator';
 import { OrderWatcherLifeCycleEvents } from './types';
 
+// tslint:disable-next-line:no-var-requires
+const d = require('debug');
+
 const DEFAULT_ERC721_ASSET = {
     minAmount: new BigNumber(0),
     maxAmount: new BigNumber(1),
@@ -74,12 +77,12 @@ export class OrderBook {
         const connection = getDBConnection();
         if (lifecycleEvent === OrderWatcherLifeCycleEvents.Add) {
             const signedOrdersModel = orders.map(serializeOrder);
+            d('orderbook')('ADD', signedOrdersModel.map(o => o.hash));
             await connection.manager.save(signedOrdersModel);
         } else if (lifecycleEvent === OrderWatcherLifeCycleEvents.Remove) {
-            for (const order of orders) {
-                const orderHash = orderHashUtils.getOrderHashHex(order);
-                await connection.manager.delete(SignedOrderModel, orderHash);
-            }
+            const orderHashes = orders.map(orderHashUtils.getOrderHashHex);
+            d('orderbook')('REMOVE', orderHashes);
+            await connection.manager.delete(SignedOrderModel, orderHashes);
         }
     }
     constructor() {
@@ -190,14 +193,18 @@ export class OrderBook {
             Required<SignedOrderModel>
         >;
         const signedOrders = signedOrderModels.map(deserializeOrder);
-        const { rejected } = await this._orderWatcher.addOrdersAsync(signedOrders);
-        for (const rejectedResult of rejected) {
-            // Mesh Order has already stored the order, this is not an invalidation, so don't delete
-            if (rejectedResult.message !== undefined && rejectedResult.message.indexOf('OrderAlreadyStored') === -1) {
-                const orderHash = orderHashUtils.getOrderHashHex(rejectedResult.order);
-                await connection.manager.delete(SignedOrderModel, orderHash);
-            }
+        d('orderbook')('SEND', signedOrders.length);
+        const { accepted, rejected } = await this._orderWatcher.addOrdersAsync(signedOrders);
+        d('orderbook')(
+            `RESULT ${rejected.length} rejected ${accepted.length} accepted. ${rejected.length +
+                accepted.length} total, ${signedOrders.length} sent`,
+        );
+        // Remove all of the rejected orders
+        if (rejected.length > 0) {
+            await OrderBook.onOrderLifeCycleEventAsync(OrderWatcherLifeCycleEvents.Remove, rejected.map(r => r.order));
         }
+        // Sync the order watching service state locally
+        this._orderWatcher.fetchOrdersAndCallbackAsync();
     }
 }
 

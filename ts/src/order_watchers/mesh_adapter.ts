@@ -3,6 +3,9 @@ import { orderParsingUtils } from '@0x/order-utils';
 import * as _ from 'lodash';
 import * as Web3Providers from 'web3-providers';
 
+// tslint:disable-next-line:no-var-requires
+const d = require('debug');
+
 import { MESH_ENDPOINT } from '../config';
 import {
     AdaptedOrderAndValidationResult,
@@ -142,6 +145,10 @@ export class MeshAdapter {
     public orderFilter(_order: SignedOrder): boolean {
         return false;
     }
+    public async fetchOrdersAndCallbackAsync(): Promise<void> {
+        const orders = await this._fetchOrdersAsync();
+        this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, orders);
+    }
     private async _connectToMeshAsync(): Promise<void> {
         while (!this._isConnectedToMesh) {
             try {
@@ -168,9 +175,9 @@ export class MeshAdapter {
                         void this._connectToMeshAsync();
                     }
                 }, HEARTBEAT_INTERVAL);
-                void this._fetchOrdersAsync();
+                void this.fetchOrdersAndCallbackAsync();
             } catch (err) {
-                console.log(err);
+                d('MESH')('Err', err);
                 await utils.sleepAsync(SLEEP_INTERVAL);
             }
         }
@@ -224,20 +231,22 @@ export class MeshAdapter {
             await utils.sleepAsync(SLEEP_INTERVAL);
         }
     }
-    private async _fetchOrdersAsync(): Promise<void> {
+    private async _fetchOrdersAsync(): Promise<SignedOrder[]> {
         await this._waitForMeshAsync();
         let page = 0;
         // tslint:disable-next-line:prefer-const
         let { ordersInfos, snapshotID } = await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, '']);
+        const fetchedOrders: SignedOrder[] = [];
         do {
-            const signedOrders = ordersInfos.map((o: any) =>
-                orderParsingUtils.convertOrderStringFieldsToBigNumber(o.signedOrder),
+            ordersInfos.forEach((o: any) =>
+                fetchedOrders.push(orderParsingUtils.convertOrderStringFieldsToBigNumber(o.signedOrder)),
             );
-            this._lifeCycleEventCallback(OrderWatcherLifeCycleEvents.Add, signedOrders);
             page++;
             ordersInfos = (await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, snapshotID]))
                 .ordersInfos;
         } while (Object.keys(ordersInfos).length > 0);
+        d('MESH')('FETCH', fetchedOrders.length);
+        return fetchedOrders;
     }
 }
 

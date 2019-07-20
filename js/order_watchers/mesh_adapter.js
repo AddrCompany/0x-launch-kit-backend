@@ -1,44 +1,46 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const order_utils_1 = require("@0x/order-utils");
-const _ = require("lodash");
-const Web3Providers = require("web3-providers");
-const config_1 = require("../config");
-const types_1 = require("../types");
-const utils_1 = require("../utils");
+'use strict';
+Object.defineProperty(exports, '__esModule', { value: true });
+const order_utils_1 = require('@0x/order-utils');
+const _ = require('lodash');
+const Web3Providers = require('web3-providers');
+// tslint:disable-next-line:no-var-requires
+const d = require('debug');
+const config_1 = require('../config');
+const types_1 = require('../types');
+const utils_1 = require('../utils');
 var OrderEventKind;
-(function (OrderEventKind) {
-    OrderEventKind["Invalid"] = "INVALID";
-    OrderEventKind["Added"] = "ADDED";
-    OrderEventKind["Filled"] = "FILLED";
-    OrderEventKind["FullyFilled"] = "FULLY_FILLED";
-    OrderEventKind["Cancelled"] = "CANCELLED";
-    OrderEventKind["Expired"] = "EXPIRED";
-    OrderEventKind["Unfunded"] = "UNFUNDED";
-    OrderEventKind["FillabilityIncreased"] = "FILLABILITY_INCREASED";
+(function(OrderEventKind) {
+    OrderEventKind['Invalid'] = 'INVALID';
+    OrderEventKind['Added'] = 'ADDED';
+    OrderEventKind['Filled'] = 'FILLED';
+    OrderEventKind['FullyFilled'] = 'FULLY_FILLED';
+    OrderEventKind['Cancelled'] = 'CANCELLED';
+    OrderEventKind['Expired'] = 'EXPIRED';
+    OrderEventKind['Unfunded'] = 'UNFUNDED';
+    OrderEventKind['FillabilityIncreased'] = 'FILLABILITY_INCREASED';
 })(OrderEventKind || (OrderEventKind = {}));
 var RejectedKind;
-(function (RejectedKind) {
-    RejectedKind["ZeroexValidation"] = "ZEROEX_VALIDATION";
-    RejectedKind["MeshError"] = "MESH_ERROR";
-    RejectedKind["MeshValidation"] = "MESH_VALIDATION";
+(function(RejectedKind) {
+    RejectedKind['ZeroexValidation'] = 'ZEROEX_VALIDATION';
+    RejectedKind['MeshError'] = 'MESH_ERROR';
+    RejectedKind['MeshValidation'] = 'MESH_VALIDATION';
 })(RejectedKind || (RejectedKind = {}));
 var RejectedCode;
-(function (RejectedCode) {
-    RejectedCode["InternalError"] = "InternalError";
-    RejectedCode["MaxOrderSizeExceeded"] = "MaxOrderSizeExceeded";
-    RejectedCode["OrderAlreadyStored"] = "OrderAlreadyStored";
-    RejectedCode["OrderForIncorrectNetwork"] = "OrderForIncorrectNetwork";
-    RejectedCode["NetworkRequestFailed"] = "NetworkRequestFailed";
-    RejectedCode["OrderHasInvalidMakerAssetAmount"] = "OrderHasInvalidMakerAssetAmount";
-    RejectedCode["OrderHasInvalidTakerAssetAmount"] = "OrderHasInvalidTakerAssetAmount";
-    RejectedCode["OrderExpired"] = "OrderExpired";
-    RejectedCode["OrderFullyFilled"] = "OrderFullyFilled";
-    RejectedCode["OrderCancelled"] = "OrderCancelled";
-    RejectedCode["OrderUnfunded"] = "OrderUnfunded";
-    RejectedCode["OrderHasInvalidMakerAssetData"] = "OrderHasInvalidMakerAssetData";
-    RejectedCode["OrderHasInvalidTakerAssetData"] = "OrderHasInvalidTakerAssetData";
-    RejectedCode["OrderHasInvalidSignature"] = "OrderHasInvalidSignature";
+(function(RejectedCode) {
+    RejectedCode['InternalError'] = 'InternalError';
+    RejectedCode['MaxOrderSizeExceeded'] = 'MaxOrderSizeExceeded';
+    RejectedCode['OrderAlreadyStored'] = 'OrderAlreadyStored';
+    RejectedCode['OrderForIncorrectNetwork'] = 'OrderForIncorrectNetwork';
+    RejectedCode['NetworkRequestFailed'] = 'NetworkRequestFailed';
+    RejectedCode['OrderHasInvalidMakerAssetAmount'] = 'OrderHasInvalidMakerAssetAmount';
+    RejectedCode['OrderHasInvalidTakerAssetAmount'] = 'OrderHasInvalidTakerAssetAmount';
+    RejectedCode['OrderExpired'] = 'OrderExpired';
+    RejectedCode['OrderFullyFilled'] = 'OrderFullyFilled';
+    RejectedCode['OrderCancelled'] = 'OrderCancelled';
+    RejectedCode['OrderUnfunded'] = 'OrderUnfunded';
+    RejectedCode['OrderHasInvalidMakerAssetData'] = 'OrderHasInvalidMakerAssetData';
+    RejectedCode['OrderHasInvalidTakerAssetData'] = 'OrderHasInvalidTakerAssetData';
+    RejectedCode['OrderHasInvalidSignature'] = 'OrderHasInvalidSignature';
 })(RejectedCode || (RejectedCode = {}));
 const SLEEP_INTERVAL = 1000;
 // Mesh ticks at 5 seconds, allow for a little latency
@@ -74,10 +76,14 @@ class MeshAdapter {
         return validationResults;
     }
     // tslint:disable-next-line: prefer-function-over-method no-empty
-    removeOrders(_orders) { }
+    removeOrders(_orders) {}
     // tslint:disable-next-line: prefer-function-over-method
     orderFilter(_order) {
         return false;
+    }
+    async fetchOrdersAndCallbackAsync() {
+        const orders = await this._fetchOrdersAsync();
+        this._lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Add, orders);
     }
     async _connectToMeshAsync() {
         while (!this._isConnectedToMesh) {
@@ -94,8 +100,10 @@ class MeshAdapter {
                 utils_1.utils.log('Connected to Mesh');
                 let heartbeatCheckInterval;
                 heartbeatCheckInterval = setInterval(() => {
-                    if (this._lastHeartbeat === undefined ||
-                        Date.now() - this._lastHeartbeat.valueOf() > HEARTBEAT_INTERVAL) {
+                    if (
+                        this._lastHeartbeat === undefined ||
+                        Date.now() - this._lastHeartbeat.valueOf() > HEARTBEAT_INTERVAL
+                    ) {
                         utils_1.utils.log('Disconnected from Mesh');
                         clearInterval(heartbeatCheckInterval);
                         this._isConnectedToMesh = false;
@@ -103,10 +111,9 @@ class MeshAdapter {
                         void this._connectToMeshAsync();
                     }
                 }, HEARTBEAT_INTERVAL);
-                void this._fetchOrdersAsync();
-            }
-            catch (err) {
-                console.log(err);
+                void this.fetchOrdersAndCallbackAsync();
+            } catch (err) {
+                d('MESH')('Err', err);
                 await utils_1.utils.sleepAsync(SLEEP_INTERVAL);
             }
         }
@@ -149,9 +156,7 @@ class MeshAdapter {
     async _submitOrdersToMeshAsync(signedOrders) {
         await this._waitForMeshAsync();
         const stringifiedSignedOrders = signedOrders.map(stringifyOrder);
-        const validationResults = await this._wsClient.send('mesh_addOrders', [
-            stringifiedSignedOrders,
-        ]);
+        const validationResults = await this._wsClient.send('mesh_addOrders', [stringifiedSignedOrders]);
         return validationResults;
     }
     async _waitForMeshAsync() {
@@ -164,17 +169,21 @@ class MeshAdapter {
         let page = 0;
         // tslint:disable-next-line:prefer-const
         let { ordersInfos, snapshotID } = await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, '']);
+        const fetchedOrders = [];
         do {
-            const signedOrders = ordersInfos.map((o) => order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(o.signedOrder));
-            this._lifeCycleEventCallback(types_1.OrderWatcherLifeCycleEvents.Add, signedOrders);
+            ordersInfos.forEach(o =>
+                fetchedOrders.push(order_utils_1.orderParsingUtils.convertOrderStringFieldsToBigNumber(o.signedOrder)),
+            );
             page++;
             ordersInfos = (await this._wsClient.send('mesh_getOrders', [page, GET_ORDERS_MAX_SIZE, snapshotID]))
                 .ordersInfos;
         } while (Object.keys(ordersInfos).length > 0);
+        d('MESH')('FETCH', fetchedOrders.length);
+        return fetchedOrders;
     }
 }
 exports.MeshAdapter = MeshAdapter;
-const stringifyOrder = (signedOrder) => {
+const stringifyOrder = signedOrder => {
     const stringifiedSignedOrder = {
         signature: signedOrder.signature,
         senderAddress: signedOrder.senderAddress,
