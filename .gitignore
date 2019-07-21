@@ -1,3 +1,6 @@
+# js build files
+js/
+
 # Webstorm config folder
 .idea
 
